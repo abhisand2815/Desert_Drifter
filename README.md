@@ -24,6 +24,6 @@ Desert Drift Runner is a fast-paced browser game where the player rides a hoverb
 |  Restart | `R` | 
 
 ## 🖼️ Screenshots
-![Game Screenshot](./")
-![Gameplay](./screenshot2.png)
+![Game Screenshot](./screenshot.png")
+
 

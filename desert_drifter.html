@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Desert Drift Runner</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: radial-gradient(circle at top, #ffefc1 0%, #f4b15a 35%, #82462b 100%);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      color: #fff;
+    }
+
+    .game-wrapper {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+
+    h1 {
+      font-size: 20px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      text-align: center;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+    }
+
+    #gameCanvas {
+      border-radius: 12px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.4);
+      background: linear-gradient(to top, #3b1510 0%, #7b301e 30%, #e6b26a 80%, #f9e7b9 100%);
+    }
+
+    .info {
+      font-size: 13px;
+      text-align: center;
+      opacity: 0.9;
+    }
+
+    .info span {
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div class="game-wrapper">
+    <h1>Desert Drift Runner</h1>
+    <canvas id="gameCanvas" width="800" height="400"></canvas>
+    <div class="info">
+      Controls: <span>Space / ↑ Jump</span> • <span>R Restart</span><br />
+      Dodge rocks, ride over glowing pads for boost!
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+
+    const keys = {
+      space: false,
+      up: false,
+      r: false
+    };
+
+    window.addEventListener("keydown", (e) => {
+      if (["Space", "ArrowUp", "KeyR"].includes(e.code)) {
+        e.preventDefault();
+      }
+      if (e.code === "Space") keys.space = true;
+      if (e.code === "ArrowUp") keys.up = true;
+      if (e.code === "KeyR") keys.r = true;
+    });
+
+    window.addEventListener("keyup", (e) => {
+      if (e.code === "Space") keys.space = false;
+      if (e.code === "ArrowUp") keys.up = false;
+      if (e.code === "KeyR") keys.r = false;
+    });
+
+    const gameState = {
+      player: {
+        x: 150,
+        y: 200,
+        width: 40,
+        height: 24,
+        vy: 0,
+        onGround: false,
+        boostTimer: 0
+      },
+      gravity: 0.6,
+      jumpStrength: -12,
+      baseSpeed: 4,
+      speed: 4,
+      maxSpeed: 9,
+      waveOffset: 0,
+      waveAmp: 40,
+      waveBaseY: 310,
+      waveLength: 80,
+      obstacles: [],
+      spawnTimer: 0,
+      score: 0,
+      gameOver: false,
+      started: false
+    };
+
+    function groundAtX(x) {
+      return (
+        gameState.waveBaseY +
+        gameState.waveAmp *
+          Math.sin((x + gameState.waveOffset) / gameState.waveLength)
+      );
+    }
+
+    function resetGame() {
+      gameState.player.x = 150;
+      gameState.player.y = 200;
+      gameState.player.vy = 0;
+      gameState.player.onGround = false;
+      gameState.player.boostTimer = 0;
+      gameState.speed = gameState.baseSpeed;
+      gameState.waveOffset = 0;
+      gameState.obstacles = [];
+      gameState.spawnTimer = 0;
+      gameState.score = 0;
+      gameState.gameOver = false;
+      gameState.started = false;
+    }
+
+    function spawnObstacle() {
+      const type = Math.random() < 0.7 ? "rock" : "boost";
+      const size = type === "rock" ? 30 + Math.random() * 20 : 20 + Math.random() * 15;
+      const x = canvas.width + 60;
+      const groundY = groundAtX(x);
+      const y = groundY - size;
+
+      gameState.obstacles.push({ x, y, size, type });
+      const minGap = 80;
+      const maxGap = 150;
+      gameState.spawnTimer =
+        minGap + Math.random() * (maxGap - minGap) - gameState.speed * 2;
+      if (gameState.spawnTimer < 60) gameState.spawnTimer = 60;
+    }
+
+    function rectsOverlap(ax, ay, aw, ah, bx, by, bw, bh) {
+      return (
+        ax < bx + bw &&
+        ax + aw > bx &&
+        ay < by + bh &&
+        ay + ah > by
+      );
+    }
+
+    function update() {
+      const p = gameState.player;
+
+      if (!gameState.started) {
+        if (keys.space || keys.up) gameState.started = true;
+        return;
+      }
+
+      if (gameState.gameOver) {
+        if (keys.r) resetGame();
+        return;
+      }
+
+      gameState.waveOffset += gameState.speed;
+
+      p.vy += gameState.gravity;
+      p.y += p.vy;
+
+      const groundYAtPlayer = groundAtX(p.x);
+      if (p.y + p.height >= groundYAtPlayer) {
+        p.y = groundYAtPlayer - p.height;
+        p.vy = 0;
+        p.onGround = true;
+      } else {
+        p.onGround = false;
+      }
+
+      if ((keys.space || keys.up) && p.onGround) {
+        p.vy = gameState.jumpStrength;
+        p.onGround = false;
+      }
+
+      if (gameState.spawnTimer <= 0) {
+        spawnObstacle();
+      } else {
+        gameState.spawnTimer -= 1;
+      }
+
+      for (let i = gameState.obstacles.length - 1; i >= 0; i--) {
+        const o = gameState.obstacles[i];
+        o.x -= gameState.speed;
+
+        const collided = rectsOverlap(
+          p.x,
+          p.y,
+          p.width,
+          p.height,
+          o.x,
+          o.y,
+          o.size,
+          o.size
+        );
+
+        if (collided) {
+          if (o.type === "rock") {
+            gameState.gameOver = true;
+          } else if (o.type === "boost") {
+            p.boostTimer = 180;
+            gameState.speed = Math.min(
+              gameState.maxSpeed,
+              gameState.baseSpeed * 1.7
+            );
+            gameState.score += 50;
+            gameState.obstacles.splice(i, 1);
+            continue;
+          }
+        }
+
+        if (o.x + o.size < 0) {
+          gameState.obstacles.splice(i, 1);
+        }
+      }
+
+      if (p.boostTimer > 0) {
+        p.boostTimer--;
+        if (p.boostTimer === 0) {
+          gameState.speed = gameState.baseSpeed;
+        }
+      }
+
+      gameState.score += 0.1 * gameState.speed;
+    }
+
+    function drawBackground() {
+      const skyGradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      skyGradient.addColorStop(0, "#fbeccd");
+      skyGradient.addColorStop(0.5, "#f2c47a");
+      skyGradient.addColorStop(1, "#7b301e");
+      ctx.fillStyle = skyGradient;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = "rgba(255,255,255,0.5)";
+      for (let i = 0; i < 3; i++) {
+        const cx = 100 + i * 200;
+        const cy = 70 + (i % 2) * 20;
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, 90, 30, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.fillStyle = "#f7e0a8";
+      ctx.beginPath();
+      ctx.arc(650, 70, 30, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function drawDunes() {
+      ctx.beginPath();
+      const startY = groundAtX(0);
+      ctx.moveTo(0, startY);
+      for (let x = 0; x <= canvas.width; x += 8) {
+        const y = groundAtX(x);
+        ctx.lineTo(x, y);
+      }
+      ctx.lineTo(canvas.width, canvas.height);
+      ctx.lineTo(0, canvas.height);
+      ctx.closePath();
+
+      const duneGrad = ctx.createLinearGradient(
+        0,
+        gameState.waveBaseY - 40,
+        0,
+        canvas.height
+      );
+      duneGrad.addColorStop(0, "#e1b86a");
+      duneGrad.addColorStop(1, "#c1843e");
+      ctx.fillStyle = duneGrad;
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(255,255,255,0.25)";
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      for (let x = 0; x <= canvas.width; x += 12) {
+        const y = groundAtX(x) - 5;
+        ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+
+    function drawObstacles() {
+      for (const o of gameState.obstacles) {
+        if (o.type === "rock") {
+          ctx.fillStyle = "#5a2b1a";
+          ctx.beginPath();
+          ctx.moveTo(o.x, o.y + o.size);
+          ctx.lineTo(o.x + o.size * 0.4, o.y);
+          ctx.lineTo(o.x + o.size, o.y + o.size);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.fillStyle = "rgba(255,255,255,0.25)";
+          ctx.beginPath();
+          ctx.arc(o.x + o.size * 0.5, o.y + o.size * 0.3, o.size * 0.15, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          const centerX = o.x + o.size / 2;
+          const centerY = o.y + o.size / 2;
+          const radius = o.size / 2;
+
+          const glowGrad = ctx.createRadialGradient(
+            centerX, centerY, radius * 0.1,
+            centerX, centerY, radius
+          );
+          glowGrad.addColorStop(0, "rgba(255,255,200,1)");
+          glowGrad.addColorStop(1, "rgba(255,255,200,0)");
+          ctx.fillStyle = glowGrad;
+          ctx.beginPath();
+          ctx.arc(centerX, centerY, radius * 1.8, 0, Math.PI * 2);
+          ctx.fill();
+
+          const padGrad = ctx.createLinearGradient(o.x, o.y, o.x + o.size, o.y + o.size);
+          padGrad.addColorStop(0, "#ffe985");
+          padGrad.addColorStop(1, "#ffb347");
+          ctx.fillStyle = padGrad;
+          ctx.beginPath();
+          ctx.roundRect(o.x, o.y, o.size, o.size * 0.5, 6);
+          ctx.fill();
+        }
+      }
+    }
+
+    CanvasRenderingContext2D.prototype.roundRect = function (
+      x,
+      y,
+      w,
+      h,
+      r
+    ) {
+      if (w < 2 * r) r = w / 2;
+      if (h < 2 * r) r = h / 2;
+      this.beginPath();
+      this.moveTo(x + r, y);
+      this.arcTo(x + w, y, x + w, y + h, r);
+      this.arcTo(x + w, y + h, x, y + h, r);
+      this.arcTo(x, y + h, x, y, r);
+      this.arcTo(x, y, x + w, y, r);
+      this.closePath();
+      return this;
+    };
+
+    function drawPlayer() {
+      const p = gameState.player;
+
+      if (p.boostTimer > 0) {
+        ctx.save();
+        ctx.globalAlpha = 0.4;
+        ctx.beginPath();
+        ctx.moveTo(p.x - 60, p.y + p.height / 2);
+        ctx.lineTo(p.x, p.y);
+        ctx.lineTo(p.x, p.y + p.height);
+        ctx.closePath();
+        ctx.fillStyle = "rgba(255, 241, 164, 1)";
+        ctx.fill();
+        ctx.restore();
+      }
+
+      const boardGrad = ctx.createLinearGradient(p.x, p.y, p.x + p.width, p.y);
+      boardGrad.addColorStop(0, "#ffcc66");
+      boardGrad.addColorStop(1, "#ff8844");
+      ctx.fillStyle = boardGrad;
+      ctx.beginPath();
+      ctx.roundRect(p.x, p.y + p.height * 0.4, p.width, p.height * 0.6, 10);
+      ctx.fill();
+
+      ctx.fillStyle = "#222";
+      ctx.fillRect(p.x + p.width * 0.3, p.y + p.height * 0.5, 4, -p.height * 0.4);
+
+      ctx.beginPath();
+      ctx.arc(
+        p.x + p.width * 0.4,
+        p.y + p.height * 0.1,
+        p.height * 0.35,
+        0,
+        Math.PI * 2
+      );
+      ctx.fillStyle = "#fbd7b0";
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(0,0,0,0.4)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(p.x + p.width * 0.1, p.y + p.height * 0.8);
+      ctx.lineTo(p.x + p.width * 0.9, p.y + p.height * 0.8);
+      ctx.stroke();
+    }
+
+    function drawHUD() {
+      ctx.fillStyle = "rgba(0,0,0,0.4)";
+      ctx.fillRect(12, 10, 160, 40);
+
+      ctx.fillStyle = "#ffecc2";
+      ctx.font = "14px system-ui";
+      ctx.fillText("Score", 20, 26);
+      ctx.font = "18px system-ui";
+      ctx.fillText(Math.floor(gameState.score), 20, 46);
+
+      ctx.fillStyle = "rgba(0,0,0,0.4)";
+      ctx.fillRect(canvas.width - 160 - 12, 10, 160, 40);
+      ctx.font = "14px system-ui";
+      ctx.fillStyle = "#ffecc2";
+      ctx.fillText("Speed", canvas.width - 150, 26);
+      ctx.font = "18px system-ui";
+      ctx.fillText(gameState.speed.toFixed(1), canvas.width - 150, 46);
+    }
+
+    function drawOverlayText() {
+      if (!gameState.started && !gameState.gameOver) {
+        ctx.fillStyle = "rgba(0,0,0,0.45)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#ffecc2";
+        ctx.font = "22px system-ui";
+        ctx.textAlign = "center";
+        ctx.fillText("Press SPACE or ↑ to start", canvas.width / 2, canvas.height / 2);
+        ctx.font = "14px system-ui";
+        ctx.fillText("Jump over rocks, ride glowing pads for a boost!", canvas.width / 2, canvas.height / 2 + 30);
+        ctx.textAlign = "start";
+      }
+
+      if (gameState.gameOver) {
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.fillStyle = "#ffecc2";
+        ctx.font = "26px system-ui";
+        ctx.textAlign = "center";
+        ctx.fillText("Game Over", canvas.width / 2, canvas.height / 2 - 20);
+        ctx.font = "18px system-ui";
+        ctx.fillText(
+          "Final Score: " + Math.floor(gameState.score),
+          canvas.width / 2,
+          canvas.height / 2 + 10
+        );
+        ctx.font = "16px system-ui";
+        ctx.fillText(
+          "Press R to restart",
+          canvas.width / 2,
+          canvas.height / 2 + 40
+        );
+        ctx.textAlign = "start";
+      }
+    }
+
+    function gameLoop() {
+      update();
+
+      drawBackground();
+      drawDunes();
+      drawObstacles();
+      drawPlayer();
+      drawHUD();
+      drawOverlayText();
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    resetGame();
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
